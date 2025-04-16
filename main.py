@@ -590,6 +590,191 @@ class PerformanceReviewWindow:
             except mysql.connector.Error as err:
                 messagebox.showerror("Error", f"Delete failed: {err}")
 
+class AddReviewWindow:
+    def __init__(self, parent, app):
+        self.top = tk.Toplevel(parent)
+        self.app = app
+        self.top.title("Add Performance Review")
+        
+        self.create_widgets()
+    
+    def create_widgets(self):
+        # Employee selection
+        ttk.Label(self.top, text="Employee ID:").grid(row=0, column=0, padx=5, pady=5)
+        self.emp_id_entry = ttk.Entry(self.top)
+        self.emp_id_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        # Rating
+        ttk.Label(self.top, text="Rating (1.0-5.0):").grid(row=1, column=0, padx=5, pady=5)
+        self.rating_entry = ttk.Entry(self.top)
+        self.rating_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        # Feedback
+        ttk.Label(self.top, text="Feedback:").grid(row=2, column=0, padx=5, pady=5)
+        self.feedback_text = tk.Text(self.top, height=5, width=30)
+        self.feedback_text.grid(row=2, column=1, padx=5, pady=5)
+        
+        ttk.Button(self.top, text="Submit", command=self.submit_review).grid(row=3, columnspan=2, pady=10)
+
+    def submit_review(self):
+        emp_id = self.emp_id_entry.get()
+        rating = self.rating_entry.get()
+        feedback = self.feedback_text.get("1.0", tk.END).strip()
+        
+        if not emp_id or not rating or not feedback:
+            messagebox.showwarning("Input Error", "Please fill all fields")
+            return
+        
+        try:
+            # Verify employee exists
+            cursor.execute("SELECT * FROM employees WHERE emp_id = %s", (emp_id,))
+            if not cursor.fetchone():
+                messagebox.showerror("Error", "No employee found with the given ID")
+                return
+                
+            # Try to convert rating to float
+            try:
+                rating = float(rating)
+                if not (1.0 <= rating <= 5.0):
+                    messagebox.showwarning("Input Error", "Rating must be between 1.0 and 5.0")
+                    return
+            except ValueError:
+                messagebox.showwarning("Input Error", "Rating must be a number")
+                return
+                
+            review_date = datetime.now().date()
+            cursor.execute(
+                "INSERT INTO performance_reviews (employee_id, review_date, rating, feedback) VALUES (%s, %s, %s, %s)",
+                (emp_id, review_date, rating, feedback)
+            )
+            db.commit()
+            messagebox.showinfo("Success", "Performance review added successfully")
+            self.top.destroy()
+        except mysql.connector.Error as err:
+            messagebox.showerror("Error", f"Failed to add review: {err}")
+
+class ViewReviewsWindow:
+    def __init__(self, parent):
+        self.top = tk.Toplevel(parent)
+        self.top.title("View Performance Reviews")
+        
+        # Employee selection frame
+        frame = ttk.Frame(self.top, padding=10)
+        frame.pack(fill='x')
+        
+        ttk.Label(frame, text="Employee ID:").pack(side=tk.LEFT, padx=5)
+        self.emp_id_entry = ttk.Entry(frame)
+        self.emp_id_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame, text="Search", command=self.load_reviews).pack(side=tk.LEFT, padx=5)
+        
+        # Reviews treeview
+        self.tree = ttk.Treeview(self.top, columns=('ID', 'Date', 'Rating', 'Feedback'), show='headings')
+        self.tree.heading('ID', text='Review ID')
+        self.tree.heading('Date', text='Date')
+        self.tree.heading('Rating', text='Rating')
+        self.tree.heading('Feedback', text='Feedback')
+        
+        # Set column widths
+        self.tree.column('ID', width=50)
+        self.tree.column('Date', width=100)
+        self.tree.column('Rating', width=50)
+        self.tree.column('Feedback', width=300)
+        
+        self.tree.pack(fill='both', expand=True, padx=10, pady=10)
+    
+    def load_reviews(self):
+        emp_id = self.emp_id_entry.get()
+        if not emp_id:
+            messagebox.showwarning("Input Error", "Please enter an Employee ID")
+            return
+            
+        # Clear existing data
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        try:
+            cursor.execute("SELECT review_id, review_date, rating, feedback FROM performance_reviews WHERE employee_id = %s", (emp_id,))
+            reviews = cursor.fetchall()
+            
+            if not reviews:
+                messagebox.showinfo("Info", "No reviews found for this employee")
+                return
+                
+            for review in reviews:
+                self.tree.insert('', 'end', values=review)
+        except mysql.connector.Error as err:
+            messagebox.showerror("Error", f"Could not load reviews: {err}")
+
+class UpdateReviewWindow:
+    def __init__(self, parent, review_id):
+        self.top = tk.Toplevel(parent)
+        self.review_id = review_id
+        self.top.title(f"Update Review #{review_id}")
+        
+        self.load_review()
+    
+    def load_review(self):
+        try:
+            cursor.execute("SELECT rating, feedback FROM performance_reviews WHERE review_id = %s", (self.review_id,))
+            review = cursor.fetchone()
+            
+            if not review:
+                messagebox.showerror("Error", "Review not found")
+                self.top.destroy()
+                return
+                
+            self.create_widgets(review)
+        except mysql.connector.Error as err:
+            messagebox.showerror("Error", f"Could not load review: {err}")
+            self.top.destroy()
+    
+    def create_widgets(self, review):
+        rating, feedback = review
+        
+        ttk.Label(self.top, text=f"Updating Review #{self.review_id}").grid(row=0, columnspan=2, pady=10)
+        
+        # Rating
+        ttk.Label(self.top, text="Rating (1.0-5.0):").grid(row=1, column=0, padx=5, pady=5)
+        self.rating_entry = ttk.Entry(self.top)
+        self.rating_entry.insert(0, str(rating))
+        self.rating_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        # Feedback
+        ttk.Label(self.top, text="Feedback:").grid(row=2, column=0, padx=5, pady=5)
+        self.feedback_text = tk.Text(self.top, height=5, width=30)
+        self.feedback_text.insert("1.0", feedback)
+        self.feedback_text.grid(row=2, column=1, padx=5, pady=5)
+        
+        ttk.Button(self.top, text="Update", command=self.update_review).grid(row=3, columnspan=2, pady=10)
+    
+    def update_review(self):
+        rating = self.rating_entry.get()
+        feedback = self.feedback_text.get("1.0", tk.END).strip()
+        
+        if not rating or not feedback:
+            messagebox.showwarning("Input Error", "Please fill all fields")
+            return
+            
+        try:
+            # Try to convert rating to float
+            try:
+                rating = float(rating)
+                if not (1.0 <= rating <= 5.0):
+                    messagebox.showwarning("Input Error", "Rating must be between 1.0 and 5.0")
+                    return
+            except ValueError:
+                messagebox.showwarning("Input Error", "Rating must be a number")
+                return
+                
+            cursor.execute("UPDATE performance_reviews SET rating = %s, feedback = %s WHERE review_id = %s",
+                          (rating, feedback, self.review_id))
+            db.commit()
+            messagebox.showinfo("Success", "Review updated successfully")
+            self.top.destroy()
+        except mysql.connector.Error as err:
+            messagebox.showerror("Error", f"Update failed: {err}")
+
+
 class PromoteWindow:
     def __init__(self, parent, app):
         self.top = tk.Toplevel(parent)
